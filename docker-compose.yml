@@ -1,0 +1,22 @@
+services:
+  bot:
+    build: .
+    environment:
+      # токен берется из переменной окружения терминала
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      # Ollama работает на самом компьютере, а не в контейнере
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT-none}
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./chroma_db_raw:/app/chroma_db_raw
+      - hf_cache:/home/bot/.cache/huggingface
+    extra_hosts:
+      # на Linux адрес host.docker.internal нужно задать явно, на Mac он есть сам
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
