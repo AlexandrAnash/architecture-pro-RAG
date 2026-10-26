@@ -5,6 +5,8 @@
 Режимы: rag — по базе знаний, raw — по исходным текстам из raw/, norag — без RAG, только LLM.
 Настройки LLM — переменные окружения LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_REASONING_EFFORT.
 Логи (LOG_LEVEL, по умолчанию INFO) показывают каждый шаг и запрос в LLM целиком.
+Защита от промпт-инъекций (bot/guard.py): GUARD_LAYERS — номера включенных слоев, по умолчанию 1,2,3,4;
+пустое значение — без защиты.
 """
 import logging
 import os
@@ -22,6 +24,8 @@ import chromadb
 from chromadb.config import Settings
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
+
+import guard
 
 ROOT = Path(__file__).resolve().parent.parent
 COLLECTION = "knowledge_base"
@@ -149,9 +153,9 @@ def format_fragments(chunks):
     return "\n\n".join(f"[{chunk_id}] {text}" for chunk_id, _, text in chunks)
 
 
-def build_messages(question, chunks, examples):
+def build_messages(question, chunks, examples, system_prompt):
     """System-промпт, затем примеры (few-shot) как прошлые диалоги, затем настоящий вопрос."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
     for example in examples:
         messages.append({"role": "user", "content": user_message(example["question"], example["fragments"])})
         messages.append({"role": "assistant", "content": example["answer"]})
@@ -176,6 +180,39 @@ def setup_logging():
     )
     # httpx пишет в лог адреса запросов, а у Телеграма в адресе есть токен — такие записи не выводим
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def read_guard_layers():
+    """Номера слоев защиты из GUARD_LAYERS, например "1,2,3,4"."""
+    value = os.environ.get("GUARD_LAYERS", ",".join(map(str, sorted(guard.ALL_LAYERS))))
+    layers = frozenset(int(part) for part in value.split(",") if part.strip())
+    if not layers <= guard.ALL_LAYERS:
+        raise SystemExit(f"GUARD_LAYERS: допустимые слои {sorted(guard.ALL_LAYERS)}, получено {value}")
+    return layers
+
+
+def drop_secret_chunks(chunks):
+    """Слой 2: выбрасывает чанки со словами про секреты."""
+    kept = []
+    for chunk in chunks:
+        secrets = guard.find_secrets(chunk[2])
+        if secrets:
+            logger.warning("Защита, слой 2: выбрасываю чанк %s — признаки секретов: %s", chunk[0], secrets)
+        else:
+            kept.append(chunk)
+    return kept
+
+
+def remove_commands_from_chunks(chunks):
+    """Слой 3: удаляет из чанков команды, обращенные к модели."""
+    cleaned = []
+    for chunk_id, distance, text in chunks:
+        commands = guard.find_commands(text)
+        if commands:
+            logger.warning("Защита, слой 3: из чанка %s удаляю команды: %s", chunk_id, commands)
+            text = guard.remove_commands(text)
+        cleaned.append((chunk_id, distance, text))
+    return cleaned
 
 
 def install():
@@ -211,6 +248,8 @@ class Rag:
         self.llm_model = os.environ.get("LLM_MODEL", DEFAULT_LLM_MODEL)
         self.reasoning_effort = os.environ.get("LLM_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
         logger.info("LLM: %s, модель %s, reasoning_effort=%s", base_url, self.llm_model, self.reasoning_effort or "-")
+        self.guard_layers = read_guard_layers()
+        logger.info("Слои защиты, когда она включена: %s", sorted(self.guard_layers) or "нет")
 
     def search(self, question, collection):
         """Ближайшие чанки: [(id, расстояние, текст)], самый близкий первым."""
@@ -239,22 +278,37 @@ class Rag:
         )
         return THINK_BLOCK.sub("", response.choices[0].message.content).strip()
 
-    def answer(self, question, mode=DEFAULT_MODE):
-        logger.info("Режим «%s». Вопрос: %s", MODES[mode], question)
+    def answer(self, question, mode=DEFAULT_MODE, protected=True):
+        layers = self.guard_layers if protected else frozenset()
+        logger.info("Режим «%s», защита: %s. Вопрос: %s", MODES[mode], sorted(layers) or "выкл", question)
         if mode == "norag":
-            return self.answer_without_rag(question)
+            reply = self.answer_without_rag(question)
+        else:
+            reply = self.answer_with_rag(question, mode, layers)
+        if 4 in layers and (secrets := guard.find_secrets(reply)):
+            logger.warning("Защита, слой 4: в ответе признаки секретов %s — вместо ответа отказ", secrets)
+            logger.info("Ответ после защиты: %s", guard.REFUSAL)
+            return guard.REFUSAL
+        return reply
+
+    def answer_with_rag(self, question, mode, layers):
         if mode not in self.collections:
             index_dir, build_command = INDEXES[mode]
             logger.warning("Индекс %s не построен", index_dir.name)
             return f"Индекс для режима «{MODES[mode]}» не построен. Команда: {build_command}"
         chunks = self.search(question, self.collections[mode])
+        if 2 in layers:
+            chunks = drop_secret_chunks(chunks)
         if not chunks or chunks[0][1] > MAX_DISTANCE:
             best = f"{chunks[0][1]:.3f}" if chunks else "нет чанков"
             logger.info("2/4 Порог: лучший чанк %s > %.2f — отвечаю «не знаю», LLM не вызываю", best, MAX_DISTANCE)
             logger.info("Ответ: %s", I_DONT_KNOW)
             return I_DONT_KNOW
         logger.info("2/4 Порог: лучший чанк %.3f <= %.2f — иду в LLM", chunks[0][1], MAX_DISTANCE)
-        messages = build_messages(question, chunks, FEW_SHOT[mode])
+        if 3 in layers:
+            chunks = remove_commands_from_chunks(chunks)
+        system_prompt = SYSTEM_PROMPT + guard.PROMPT_RULE if 1 in layers else SYSTEM_PROMPT
+        messages = build_messages(question, chunks, FEW_SHOT[mode], system_prompt)
         prompt_chars = sum(len(message["content"]) for message in messages)
         logger.info(
             "3/4 Промпт: system + %d примера + вопрос с %d фрагментами, %d символов",

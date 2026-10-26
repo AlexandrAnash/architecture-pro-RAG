@@ -9,6 +9,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
       LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT-none}
+      # слои защиты от промпт-инъекций, когда она включена (/protect); пусто — без защиты
+      GUARD_LAYERS: ${GUARD_LAYERS-1,2,3,4}
     volumes:
       - ./chroma_db:/app/chroma_db
       - ./chroma_db_raw:/app/chroma_db_raw
