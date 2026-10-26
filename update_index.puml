@@ -1,0 +1,38 @@
+@startuml update_index
+title Ежедневное обновление индекса базы знаний
+
+node "Mac (хост)" {
+  rectangle "cron\n0 6 * * * — каждый день в 6:00" as cron
+  rectangle "scripts/update.sh\nдо 3 попыток, пауза 5 мин" as sh
+  folder "knowledge_base/\nдокументы *.txt" as kb
+
+  rectangle "scripts/update_index.py" as py {
+    rectangle "1. Поиск изменений\nsha256 файла и hash в индексе\n-> новые, измененные, удаленные" as diff
+    rectangle "2. Чанки\n100-300 слов по разделам\n(file_chunks из build_index.py)" as chunks
+    rectangle "3. Эмбеддинги\nBAAI/bge-m3, 1024 числа" as emb
+    rectangle "4. Обновление индекса\ndelete: чанки измененных и удаленных\nadd: чанки новых и измененных" as upd
+  }
+
+  ' в PlantUML ~ экранирует следующий символ, поэтому сама тильда пишется как ~~
+  folder "~~/.cache/huggingface\nмодель BAAI/bge-m3" as model
+  database "chroma_db/\nChroma: текст, эмбеддинг,\nsource и hash чанка" as db
+  file "logs/update_index.log\nзапуск и завершение, изменения,\nчанки, размер индекса, ошибки" as log
+}
+
+node "Docker" {
+  rectangle "Телеграм-бот\nbot/telegram_bot.py + bot/rag.py" as bot
+}
+
+cron --> sh : запуск
+sh --> py : запуск, повтор\nпри коде выхода 2
+kb --> diff : сканирует *.txt
+db --> diff : хеши документов\nв индексе
+diff --> chunks : новые и измененные
+chunks --> emb : тексты чанков
+model --> emb
+emb --> upd : векторы
+upd --> db
+py --> log : ход работы и итог
+sh --> log : попытки и сбои
+db --> bot : том ./chroma_db\n(после обновления —\ndocker compose restart bot)
+@enduml

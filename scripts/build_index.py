@@ -3,6 +3,7 @@
 Индекс базы знаний (knowledge_base/ -> chroma_db/): .venv/bin/python scripts/build_index.py
 Индекс исходных текстов (raw/ -> chroma_db_raw/):  .venv/bin/python scripts/build_index.py raw
 """
+import hashlib
 import os
 import re
 import shutil
@@ -19,9 +20,11 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parent.parent
+DOCS_DIR = ROOT / "knowledge_base"
 INDEX_DIR = ROOT / "chroma_db"
 RAW_INDEX_DIR = ROOT / "chroma_db_raw"
 COLLECTION = "knowledge_base"
+COLLECTION_METADATA = {"hnsw:space": "cosine"}
 MODEL_NAME = "BAAI/bge-m3"
 # Chroma по умолчанию отправляет в интернет статистику использования — отключаем
 NO_TELEMETRY = Settings(anonymized_telemetry=False)
@@ -33,7 +36,7 @@ TOP_K = 3
 
 # источник: (папка с текстами, папка индекса, пример запроса)
 SOURCES = {
-    "knowledge_base": (ROOT / "knowledge_base", INDEX_DIR, "Когда родился Тарен Сорвейн?"),
+    "knowledge_base": (DOCS_DIR, INDEX_DIR, "Когда родился Тарен Сорвейн?"),
     "raw": (ROOT / "raw", RAW_INDEX_DIR, "Когда родился Люк Скайуокер?"),
 }
 
@@ -88,24 +91,50 @@ def make_chunks(paragraphs):
     return ["\n\n".join(chunk) for chunk in chunks]
 
 
+def file_hash(path):
+    """Отпечаток содержимого файла: меняется при любой правке текста."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def source_name(path):
+    """Путь документа от корня проекта — по нему чанки привязаны к файлу."""
+    return str(path.relative_to(ROOT))
+
+
+def list_documents(docs_dir):
+    return sorted(docs_dir.glob("*.txt"))
+
+
+def file_chunks(path):
+    """Возвращает id, тексты и метаданные чанков одного документа."""
+    ids, texts, metadatas = [], [], []
+    title, sections = read_sections(path)
+    content_hash = file_hash(path)
+    number = 0
+    for heading, paragraphs in sections:
+        prefix = f"{title}. {heading}." if heading else f"{title}."
+        for chunk in make_chunks(paragraphs):
+            ids.append(f"{path.name}#{number}")
+            texts.append(f"{prefix}\n{chunk}")
+            metadatas.append({
+                "source": source_name(path),
+                "title": title,
+                "section": heading,
+                "chunk": number,
+                "hash": content_hash,
+            })
+            number += 1
+    return ids, texts, metadatas
+
+
 def build_chunks(docs_dir):
     """Возвращает id, тексты и метаданные всех чанков из папки с документами."""
     ids, texts, metadatas = [], [], []
-    for path in sorted(docs_dir.glob("*.txt")):
-        title, sections = read_sections(path)
-        number = 0
-        for heading, paragraphs in sections:
-            prefix = f"{title}. {heading}." if heading else f"{title}."
-            for chunk in make_chunks(paragraphs):
-                ids.append(f"{path.name}#{number}")
-                texts.append(f"{prefix}\n{chunk}")
-                metadatas.append({
-                    "source": str(path.relative_to(ROOT)),
-                    "title": title,
-                    "section": heading,
-                    "chunk": number,
-                })
-                number += 1
+    for path in list_documents(docs_dir):
+        file_ids, file_texts, file_metadatas = file_chunks(path)
+        ids += file_ids
+        texts += file_texts
+        metadatas += file_metadatas
     return ids, texts, metadatas
 
 
@@ -113,7 +142,7 @@ def create_collection(index_dir):
     """Строит индекс с нуля: старая папка удаляется целиком, чтобы не осталось старых чанков и файлов."""
     shutil.rmtree(index_dir, ignore_errors=True)
     client = chromadb.PersistentClient(path=str(index_dir), settings=NO_TELEMETRY)
-    return client.create_collection(COLLECTION, metadata={"hnsw:space": "cosine"})
+    return client.create_collection(COLLECTION, metadata=COLLECTION_METADATA)
 
 
 def load_model():

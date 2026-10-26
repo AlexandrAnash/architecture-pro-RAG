@@ -1,0 +1,31 @@
+2026-10-26 18:38:58 INFO update.sh: попытка 1 из 3
+2026-10-26 18:39:04,286 INFO update_index: Запуск: knowledge_base -> chroma_db
+
+2026-10-26 18:39:10,145 INFO update_index: Найдено: новых 0, измененных 0, удаленных 0
+2026-10-26 18:39:10,308 INFO update_index: Индекс: 136 чанков, 4.6 МБ
+2026-10-26 18:39:10,308 INFO update_index: Завершено за 6.0 с
+2026-10-26 18:39:10,309 INFO update_index: index updated at 2026-10-26 18:39, 0 files added, 0 changed, 0 deleted, 0 chunks added, 0 chunks deleted, 0 errors
+2026-10-26 18:40:21 INFO update.sh: попытка 1 из 3
+2026-10-26 18:40:25,545 INFO update_index: Запуск: knowledge_base -> chroma_db
+
+2026-10-26 18:40:29,940 INFO update_index: Найдено: новых 0, измененных 1, удаленных 0
+2026-10-26 18:40:29,942 INFO update_index:   ~ knowledge_base/Академия на Глейсе.txt
+2026-10-26 18:40:30,945 INFO update_index: Индекс: 136 чанков, 4.6 МБ
+2026-10-26 18:40:30,945 INFO update_index: Завершено за 5.4 с
+2026-10-26 18:40:30,945 INFO update_index: index updated at 2026-10-26 18:40, 0 files added, 1 changed, 0 deleted, 1 chunks added, 1 chunks deleted, 0 errors
+2026-10-26 18:40:53 INFO update.sh: попытка 1 из 3
+2026-10-26 18:40:58,287 INFO update_index: Запуск: knowledge_base -> chroma_db
+
+2026-10-26 18:41:02,781 INFO update_index: Найдено: новых 0, измененных 0, удаленных 1
+2026-10-26 18:41:02,783 INFO update_index:   - knowledge_base/Академия на Глейсе.txt
+2026-10-26 18:41:02,810 INFO update_index: Индекс: 135 чанков, 4.6 МБ
+2026-10-26 18:41:02,810 INFO update_index: Завершено за 4.5 с
+2026-10-26 18:41:02,810 INFO update_index: index updated at 2026-10-26 18:41, 0 files added, 0 changed, 1 deleted, 0 chunks added, 1 chunks deleted, 0 errors
+2026-10-26 18:41:13 INFO update.sh: попытка 1 из 3
+2026-10-26 18:41:18,319 INFO update_index: Запуск: knowledge_base -> chroma_db
+
+2026-10-26 18:41:22,907 INFO update_index: Найдено: новых 1, измененных 0, удаленных 0
+2026-10-26 18:41:22,908 INFO update_index:   + knowledge_base/Академия на Глейсе.txt
+2026-10-26 18:41:23,852 INFO update_index: Индекс: 136 чанков, 4.6 МБ
+2026-10-26 18:41:23,852 INFO update_index: Завершено за 5.5 с
+2026-10-26 18:41:23,853 INFO update_index: index updated at 2026-10-26 18:41, 1 files added, 0 changed, 0 deleted, 1 chunks added, 0 chunks deleted, 0 errors
