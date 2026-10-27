@@ -75,7 +75,8 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
     try:
         # RAG работает долго и не умеет async — запускаем его в отдельном потоке, чтобы бот не зависал
-        reply = await asyncio.to_thread(context.bot_data["rag"].answer, question, mode, protected)
+        result = await asyncio.to_thread(context.bot_data["rag"].answer, question, mode, protected)
+        reply = result.text
     except Exception:
         logger.exception("Ошибка при ответе на вопрос")
         reply = ERROR_REPLY

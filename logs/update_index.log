@@ -29,3 +29,23 @@
 2026-10-26 18:41:23,852 INFO update_index: Индекс: 136 чанков, 4.6 МБ
 2026-10-26 18:41:23,852 INFO update_index: Завершено за 5.5 с
 2026-10-26 18:41:23,853 INFO update_index: index updated at 2026-10-26 18:41, 1 files added, 0 changed, 0 deleted, 1 chunks added, 0 chunks deleted, 0 errors
+2026-10-27 12:26:27 INFO update.sh: попытка 1 из 3
+W1027 12:26:31.951000 7328 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+2026-10-27 12:26:32,665 INFO update_index: Запуск: knowledge_base -> chroma_db
+2026-10-27 12:26:37,904 INFO update_index: Найдено: новых 0, измененных 10, удаленных 3
+2026-10-27 12:26:37,905 INFO update_index:   ~ knowledge_base/Битва при Глейсе.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Древний ворон.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Дуэль на Пиргосе.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Морва.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Нея Вирена.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Ольвен Сорвейн.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Орден сейраев.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Сарвен.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Скит I.txt
+2026-10-27 12:26:37,906 INFO update_index:   ~ knowledge_base/Эйр-Тавен Ласари.txt
+2026-10-27 12:26:37,906 INFO update_index:   - knowledge_base/Варда Кесс.txt
+2026-10-27 12:26:37,906 INFO update_index:   - knowledge_base/Импульсер.txt
+2026-10-27 12:26:37,906 INFO update_index:   - knowledge_base/Мегарис.txt
+2026-10-27 12:26:49,364 INFO update_index: Индекс: 113 чанков, 4.7 МБ
+2026-10-27 12:26:49,364 INFO update_index: Завершено за 16.7 с
+2026-10-27 12:26:49,365 INFO update_index: index updated at 2026-10-27 12:26, 0 files added, 10 changed, 3 deleted, 28 chunks added, 51 chunks deleted, 0 errors

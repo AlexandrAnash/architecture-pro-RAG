@@ -14,6 +14,8 @@ services:
     volumes:
       - ./chroma_db:/app/chroma_db
       - ./chroma_db_raw:/app/chroma_db_raw
+      # лог запросов logs/queries.jsonl — общий для бота и scripts/evaluate.py
+      - ./logs:/app/logs
       - hf_cache:/home/bot/.cache/huggingface
     extra_hosts:
       # на Linux адрес host.docker.internal нужно задать явно, на Mac он есть сам

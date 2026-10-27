@@ -7,12 +7,15 @@
 Логи (LOG_LEVEL, по умолчанию INFO) показывают каждый шаг и запрос в LLM целиком.
 Защита от промпт-инъекций (bot/guard.py): GUARD_LAYERS — номера включенных слоев, по умолчанию 1,2,3,4;
 пустое значение — без защиты.
+Каждый запрос записывается в logs/queries.jsonl (bot/query_log.py) — для аналитики покрытия базы знаний.
 """
 import logging
 import os
 import re
 import sys
 import time
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 
 # Hugging Face работает без интернета: модель берется из локального кэша.
@@ -26,6 +29,7 @@ from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 
 import guard
+import query_log
 
 ROOT = Path(__file__).resolve().parent.parent
 COLLECTION = "knowledge_base"
@@ -48,6 +52,9 @@ TOP_K = 3
 MAX_DISTANCE = 0.5
 TEMPERATURE = 0.2
 I_DONT_KNOW = "Я не знаю — в базе знаний этого нет."
+DONT_KNOW_MARK = "не знаю"
+# Ответ короче — не по существу, даже если LLM не написала "не знаю"
+MIN_ANSWER_CHARS = 50
 
 DEFAULT_LLM_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_LLM_MODEL = "qwen3:8b"
@@ -229,6 +236,47 @@ def load_embedder():
         raise SystemExit(f"Модель {EMBEDDING_MODEL} не скачана: .venv/bin/python bot/rag.py install") from error
 
 
+class Status(StrEnum):
+    ANSWERED = "answered"  # ответ по существу
+    UNKNOWN = "unknown"  # "не знаю": близких чанков нет или в них нет ответа
+    FILTERED = "filtered"  # слой 4 защиты заменил ответ отказом
+    NO_INDEX = "no_index"  # индекс для режима не построен
+    ERROR = "error"  # сбой, например LLM недоступна
+
+
+@dataclass
+class Answer:
+    """Ответ бота и то, на чем он основан, — для лога запросов и оценки качества."""
+    text: str
+    status: Status
+    chunks: list = field(default_factory=list)  # [(id, расстояние, текст)] — фрагменты, переданные в LLM
+    best_distance: float | None = None  # расстояние до ближайшего найденного чанка
+
+    @property
+    def sources(self):
+        return [chunk_id for chunk_id, _, _ in self.chunks]
+
+    @property
+    def success(self):
+        return self.status == Status.ANSWERED and len(self.text) >= MIN_ANSWER_CHARS
+
+    def log_fields(self):
+        return {
+            "chunks_found": bool(self.chunks),
+            "sources": self.sources,
+            "best_distance": None if self.best_distance is None else round(self.best_distance, 3),
+            "answer_length": len(self.text),
+            "status": self.status,
+            "success": self.success,
+            "answer": self.text,
+        }
+
+
+def reply_status(reply):
+    """По правилу 3 промпта LLM пишет "не знаю", если во фрагментах нет ответа."""
+    return Status.UNKNOWN if DONT_KNOW_MARK in reply.lower() else Status.ANSWERED
+
+
 class Rag:
     def __init__(self):
         started = time.perf_counter()
@@ -279,31 +327,48 @@ class Rag:
         return THINK_BLOCK.sub("", response.choices[0].message.content).strip()
 
     def answer(self, question, mode=DEFAULT_MODE, protected=True):
+        """Ответ на вопрос. Каждый запрос, в том числе со сбоем, записывается в лог запросов."""
         layers = self.guard_layers if protected else frozenset()
         logger.info("Режим «%s», защита: %s. Вопрос: %s", MODES[mode], sorted(layers) or "выкл", question)
+        started = time.perf_counter()
+        result = Answer("", Status.ERROR)
+        try:
+            result = self.find_answer(question, mode, layers)
+            return result
+        finally:
+            query_log.append({
+                "question": question,
+                "mode": mode,
+                "protected": bool(layers),
+                **result.log_fields(),
+                "seconds": round(time.perf_counter() - started, 1),
+            })
+
+    def find_answer(self, question, mode, layers):
         if mode == "norag":
-            reply = self.answer_without_rag(question)
+            result = self.answer_without_rag(question)
         else:
-            reply = self.answer_with_rag(question, mode, layers)
-        if 4 in layers and (secrets := guard.find_secrets(reply)):
+            result = self.answer_with_rag(question, mode, layers)
+        if 4 in layers and (secrets := guard.find_secrets(result.text)):
             logger.warning("Защита, слой 4: в ответе признаки секретов %s — вместо ответа отказ", secrets)
             logger.info("Ответ после защиты: %s", guard.REFUSAL)
-            return guard.REFUSAL
-        return reply
+            return replace(result, text=guard.REFUSAL, status=Status.FILTERED)
+        return result
 
     def answer_with_rag(self, question, mode, layers):
         if mode not in self.collections:
             index_dir, build_command = INDEXES[mode]
             logger.warning("Индекс %s не построен", index_dir.name)
-            return f"Индекс для режима «{MODES[mode]}» не построен. Команда: {build_command}"
+            return Answer(f"Индекс для режима «{MODES[mode]}» не построен. Команда: {build_command}", Status.NO_INDEX)
         chunks = self.search(question, self.collections[mode])
+        best_distance = chunks[0][1] if chunks else None
         if 2 in layers:
             chunks = drop_secret_chunks(chunks)
         if not chunks or chunks[0][1] > MAX_DISTANCE:
             best = f"{chunks[0][1]:.3f}" if chunks else "нет чанков"
             logger.info("2/4 Порог: лучший чанк %s > %.2f — отвечаю «не знаю», LLM не вызываю", best, MAX_DISTANCE)
             logger.info("Ответ: %s", I_DONT_KNOW)
-            return I_DONT_KNOW
+            return Answer(I_DONT_KNOW, Status.UNKNOWN, best_distance=best_distance)
         logger.info("2/4 Порог: лучший чанк %.3f <= %.2f — иду в LLM", chunks[0][1], MAX_DISTANCE)
         if 3 in layers:
             chunks = remove_commands_from_chunks(chunks)
@@ -314,7 +379,8 @@ class Rag:
             "3/4 Промпт: system + %d примера + вопрос с %d фрагментами, %d символов",
             len(FEW_SHOT[mode]), len(chunks), prompt_chars,
         )
-        return self.ask_and_log(messages)
+        reply = self.ask_and_log(messages)
+        return Answer(reply, reply_status(reply), chunks, best_distance)
 
     def answer_without_rag(self, question):
         logger.info("Без RAG: поиск и промпт с фрагментами пропускаю, вопрос сразу в LLM")
@@ -322,7 +388,8 @@ class Rag:
             {"role": "system", "content": NO_RAG_SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
-        return self.ask_and_log(messages)
+        reply = self.ask_and_log(messages)
+        return Answer(reply, reply_status(reply))
 
     def ask_and_log(self, messages):
         reply = self.ask_llm(messages)

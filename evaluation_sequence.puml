@@ -1,0 +1,57 @@
+@startuml evaluation_sequence
+title Обработка запроса и автоматическая оценка качества
+
+actor "Пользователь" as user
+participant "telegram_bot.py" as bot
+participant "evaluate.py" as eval
+participant "Rag.answer()\nbot/rag.py" as rag
+participant "bge-m3" as emb
+database "Chroma\nchroma_db/" as db
+participant "guard.py" as guard
+participant "LLM\nqwen3:8b" as llm
+collections "logs/" as logs
+
+== Запрос из Телеграма ==
+user -> bot : вопрос
+bot -> rag : answer(вопрос, режим, защита)
+ref over rag, logs : обработка запроса — как в оценке ниже
+rag --> bot : Answer
+bot --> user : текст ответа
+
+== Оценка на золотом наборе ==
+eval -> eval : читает golden_questions.json\n(группы kept, removed, absent)
+loop для каждого вопроса
+  eval -> rag : answer(вопрос)
+  rag -> emb : эмбеддинг вопроса
+  emb --> rag : вектор из 1024 чисел
+  rag -> db : поиск top-3
+  note right of db #FFDDDD
+    Сбой: индекс не построен (статус no_index)
+    или пуст — чанков нет, все ответы "не знаю"
+  end note
+  db --> rag : чанки и расстояния
+  rag -> guard : слой 2: выбросить чанки с секретами
+  alt лучший чанк дальше 0.5
+    rag -> rag : "не знаю", LLM не вызывается\n(статус unknown)
+  else есть близкие чанки
+    rag -> guard : слой 3: вырезать команды из чанков
+    note right of guard #FFDDDD
+      Сбой: невалидный чанк — инъекция,
+      обрезанный или чужой текст
+    end note
+    rag -> llm : system + few-shot + фрагменты + вопрос
+    note right of llm #FFDDDD
+      Сбой генерации: LLM недоступна
+      или таймаут (статус error),
+      ответ не по формату, выдумка
+    end note
+    llm --> rag : Шаги / Ответ / Источник
+    rag -> guard : слой 4: секреты в ответе -> отказ\n(статус filtered)
+  end
+  rag -> logs : queries.jsonl: запрос, время, чанки,\nисточники, длина, статус, success
+  rag --> eval : Answer: текст, статус, источники
+  eval -> eval : полнота: ключевые слова в "Ответ:"\nисточник: ожидаемый файл среди найденных\nоценка: ok / partial / gap / hallucination
+  eval -> logs : evaluation_<метка>.jsonl
+end
+eval -> eval : сводка: пробелы и неверные источники;\nкод выхода 1, если не все ok
+@enduml
