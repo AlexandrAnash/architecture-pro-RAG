@@ -1,0 +1,10 @@
+# бот: RAG и Телеграм
+torch==2.14.1
+sentence-transformers==6.2.0
+chromadb==1.5.9
+openai==3.37.0
+python-telegram-bot==22.8
+
+# скрипт скачивания статей (scripts/fetch_pages.py)
+requests==2.34.2
+beautifulsoup4==4.15.0
