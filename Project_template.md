@@ -2,7 +2,32 @@
 
 ## Как запустить
 
-> Соберите Docker-образ бота. Минимальный Dockerfile + docker compose.yml (бот + FAISS).
+Нужно заранее: Python 3.11, Docker, [Ollama](https://ollama.com) и токен Телеграм бота
+
+**1. Подготовка**
+```
+Индексы `chroma_db/` и `chroma_db_raw/` уже лежат в репозитории. Пересобрать их можно так:
+```
+.venv/bin/python scripts/build_index.py       # knowledge_base/ -> chroma_db/
+.venv/bin/python scripts/build_index.py raw   # raw/ -> chroma_db_raw/, для режима /raw там оригиналы из звездных войн
+```
+
+**2. Запуск бота в Docker**
+```
+docker compose run --rm bot python bot/rag.py install
+read -rs TELEGRAM_TOKEN && export TELEGRAM_TOKEN
+docker compose up -d --build
+docker compose logs -f bot
+```
+- Команды бота: `/rag`, `/raw`, `/norag`, `/mode`, `/protect`.
+- Вопрос без Телеграма: `.venv/bin/python bot/rag.py "Что такое Протокол 9?"`.
+
+**3. Обновление и оценка**
+```
+scripts/update.sh                             # обновить индекс (задание 6), в cron: 0 6 * * *
+.venv/bin/python scripts/evaluate.py <метка>  # прогон золотого набора (задание 7)
+```
+После обновления индекса бота нужно перезапустить: `docker compose restart bot`.
 
 ## Задание 1. Исследование моделей и инфраструктуры
 
