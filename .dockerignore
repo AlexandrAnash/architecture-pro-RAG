@@ -5,7 +5,7 @@
 .claude
 __pycache__
 __test*
-*.png
+images
 raw
 knowledge_base
 chroma_db
